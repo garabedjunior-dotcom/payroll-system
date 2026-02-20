@@ -1,0 +1,92 @@
+name: Refactor Project Structure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Check if refactoring is needed
+        id: check
+        run: |
+          if [ -d "payroll-system/payroll-system" ]; then
+            echo "needs_refactor=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_refactor=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Move files from nested directory to root
+        if: steps.check.outputs.needs_refactor == 'true'
+        run: |
+          # Move all files and directories from payroll-system/payroll-system to root
+          for item in payroll-system/payroll-system/*; do
+            if [ -e "$item" ]; then
+              name=$(basename "$item")
+              # Remove if exists in root
+              if [ -e "$name" ] && [ "$name" != "payroll-system" ]; then
+                rm -rf "$name"
+              fi
+              mv "$item" .
+              echo "Moved: $name"
+            fi
+          done
+          
+          # Move hidden files too (like .env, .gitignore, etc)
+          for item in payroll-system/payroll-system/.*; do
+            if [ -f "$item" ] && [ "$(basename $item)" != "." ] && [ "$(basename $item)" != ".." ]; then
+              name=$(basename "$item")
+              rm -f "$name"
+              mv "$item" .
+              echo "Moved: $name"
+            fi
+          done
+          
+          # Remove empty payroll-system directory
+          if [ -d "payroll-system" ] && [ -z "$(ls -A payroll-system)" ]; then
+            rmdir payroll-system
+            echo "Removed empty payroll-system directory"
+          fi
+
+      - name: Verify refactoring
+        if: steps.check.outputs.needs_refactor == 'true'
+        run: |
+          if [ -f "package.json" ]; then
+            echo "✅ package.json found at root"
+          else
+            echo "❌ package.json NOT found at root!"
+            exit 1
+          fi
+
+      - name: Commit and push changes
+        if: steps.check.outputs.needs_refactor == 'true'
+        run: |
+          git add -A
+          git commit -m "refactor: Move project to root directory for Vercel deployment" \
+            -m "This fixes the Next.js configuration detection issue that was causing 404 errors."
+          git push origin main
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.needs_refactor }}" = "true" ]; then
+            echo "✨ Refactoring completed successfully!"
+            echo "📦 Project structure has been normalized"
+            echo "🚀 Vercel will now properly detect Next.js configuration"
+          else
+            echo "ℹ️  Project is already properly structured"
+          fi
